@@ -10,7 +10,7 @@ using GTA.Native;
 namespace NpcVoice
 {
     /// <summary>
-    /// Physical actions NPCs do along with what they say. After a reply is written, Jev picks one from
+    /// Physical actions NPCs do along with what they say. After a reply is written, the action picker (Jev or an open LLM) picks one from
     /// ActionCatalog.All (a Choice over the player's words and the reply); the action then plays while
     /// the line is spoken. Each action is a short step sequence on the game thread (walk up, face the
     /// player, animation, back to normal). Animations are listed as candidates and checked against the
@@ -82,7 +82,7 @@ namespace NpcVoice
 
 
 
-        /// <summary>Jev is picking an action for this line; it starts when the pick comes back (game thread).</summary>
+        /// <summary>The picker is choosing an action for this line; it starts when the pick comes back (game thread).</summary>
         public void Queue(Ped ped, Task<JevChoice> pick, Exchange exchange, bool female)
         {
             _queued.Add(new Queued { Ped = ped, Pick = pick, Exchange = exchange, Female = female, Deadline = Environment.TickCount + 8000 });
@@ -102,7 +102,7 @@ namespace NpcVoice
                 else if (unchecked(Environment.TickCount - q.Deadline) > 0)
                 {
                     _queued.RemoveAt(i);
-                    Log.Write("action: Jev took too long; skipped");
+                    Log.Write("action: the picker took too long; skipped");
                 }
             }
 
@@ -127,7 +127,7 @@ namespace NpcVoice
             }
         }
 
-        /// <summary>Start an action on a ped now (a Jev pick, or the dev-mode test key), aimed at the player or at
+        /// <summary>Start an action on a ped now (a pick, or the dev-mode test key), aimed at the player or at
         /// <paramref name="target"/> (another NPC, for scenes between NPCs).</summary>
         public void Perform(Ped ped, string name, Ped target = null)
         {
@@ -140,7 +140,7 @@ namespace NpcVoice
         /// <summary>What this ped is doing right now (null if nothing), for the director's camera.</summary>
         public string ActingOn(Ped ped) => _running.FirstOrDefault(r => r.Ped == ped)?.Name;
 
-        /// <summary>Jev is still picking, or an action is still playing, for this ped.</summary>
+        /// <summary>The picker is still choosing, or an action is still playing, for this ped.</summary>
         public bool Busy(Ped ped) => _queued.Any(q => q.Ped == ped) || _running.Any(r => r.Ped == ped);
 
         public void Stop(Ped ped)
@@ -181,8 +181,8 @@ namespace NpcVoice
         {
             if (q.Pick.IsFaulted)
             {
-                Log.Write("action: Jev failed: " + q.Pick.Exception?.GetBaseException().Message);
-                if (q.Exchange != null) q.Exchange.Action = "Jev error";
+                Log.Write("action: the picker failed: " + q.Pick.Exception?.GetBaseException().Message);
+                if (q.Exchange != null) q.Exchange.Action = "pick error";
                 return;
             }
             JevChoice c = q.Pick.Result;

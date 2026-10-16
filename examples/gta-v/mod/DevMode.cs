@@ -18,7 +18,7 @@ namespace NpcVoice
         public string Who, Mode, Heard, Reply, Voice, Error;
         public double Stt = -1, Llm = -1, Tts = -1, Total = -1;
         public System.Threading.Tasks.Task<JevChoice> ActionPick; // Jev choosing what they physically do
-        public string Action;                                     // what Jev picked, for the dev panel
+        public string Action;                                     // what the action picker picked, for the dev panel
         public double ActionSeconds = -1;
     }
 

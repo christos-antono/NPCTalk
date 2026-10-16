@@ -6,17 +6,17 @@ using System.Threading.Tasks;
 namespace NpcVoice
 {
     /// <summary>
-    /// The physical actions NPCs can do while they talk, as Jev sees them: name, what it means, and how
-    /// sure Jev must be before it happens. No game code here, so the check tool can ask Jev the same
-    /// question (npcvoice-check actions); NpcActions plays them in game.
+    /// The physical actions NPCs can do while they talk, as the action picker (Jev or an open LLM) sees them:
+    /// name, what it means, and how sure the picker must be before it happens. No game code here, so the check
+    /// tool can ask the same question (npcvoice-check actions); NpcActions plays them in game.
     /// </summary>
     internal static class ActionCatalog
     {
         internal sealed class Kind
         {
             public string Name;
-            public string Description;      // what Jev reads
-            public double MinProbability;   // Jev must be at least this sure
+            public string Description;      // what the picker reads
+            public double MinProbability;   // the picker must be at least this sure
             public bool MenOnly;
             public string Doing;            // for the LLM when told to do it: "you're <Doing> right now"
         }
@@ -64,7 +64,7 @@ namespace NpcVoice
 
         public static Kind Find(string name) => All.FirstOrDefault(k => k.Name == name);
 
-        /// <summary>Whether the mod acts on Jev's pick for this ped.</summary>
+        /// <summary>Whether the mod acts on the pick for this ped.</summary>
         public static bool Acts(JevChoice pick, bool female, double minProbability = 0)
         {
             Kind kind = pick != null ? Find(pick.Choice) : null;
@@ -73,9 +73,9 @@ namespace NpcVoice
         }
 
         /// <summary>The action the player just told the npc to do, or null (with the pick, for the action queue).</summary>
-        public static async Task<JevChoice> OrderAsync(JevClient jev, IDictionary<string, object> state, bool female, CancellationToken ct)
+        public static async Task<JevChoice> OrderAsync(IActionPicker picker, IDictionary<string, object> state, bool female, CancellationToken ct)
         {
-            JevChoice pick = await jev.ChooseAsync(state, OrderInstructions, Criteria(), ct).ConfigureAwait(false);
+            JevChoice pick = await picker.ChooseAsync(state, OrderInstructions, Criteria(), ct).ConfigureAwait(false);
             if (!Acts(pick, female, OrderMinProbability)) return null;
             pick.Ordered = true;
             return pick;

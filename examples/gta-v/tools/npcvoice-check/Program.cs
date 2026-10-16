@@ -1,5 +1,6 @@
 // Exercises the mod's network path outside the game: upload clips, LLM reply, TTS, STT of the result.
-// LLM and speech-to-text settings come from examples/gta-v/mod/NpcVoice.ini, read the way ScriptHookVDotNet reads it.
+// LLM, speech-to-text and action settings come from examples/gta-v/mod/NpcVoice.ini, read the way ScriptHookVDotNet
+// reads it, and are built by the mod's own EngineConfig class.
 //   npcvoice-check <voicesDir> <engine> <voiceName> [line typed by the player]
 using System;
 using System.Collections.Generic;
@@ -14,20 +15,36 @@ namespace NpcVoice
 {
     internal static class Program
     {
+        private static readonly string IniPath =
+            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\..\mod\NpcVoice.ini"));
+
+        /// <summary>NpcVoice.ini with Section.Key=value arguments on top, e.g. Stt.Provider=openai Llm.BaseUrl=127.0.0.1:11434/v1.</summary>
+        private static EngineConfig.Setting Settings(IEnumerable<string> overrides)
+        {
+            var ini = ShvdnIni.Load(IniPath);
+            var set = overrides.Select(a => a.Split(new[] { '=' }, 2)).Where(kv => kv.Length == 2 && kv[0].Contains("."))
+                .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.OrdinalIgnoreCase);
+            return (s, k, d) => set.TryGetValue(s + "." + k, out string v) && v.Length > 0 ? v : ini.Get(s, k, d);
+        }
+
         private static async Task<int> Main(string[] args)
         {
             // Mimic GTA5.exe: start from the legacy TLS default, then let Net.Init fix it.
             System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls;
             Net.Init();
             if (args[0] == "vad") return await Vad(args[1]);
-            if (args[0] == "actions") return await Actions();
+            if (args[0] == "stt") return await Stt(args[1], args.Skip(2));
+            if (args[0] == "actions")
+            {
+                string provider = args.Skip(1).FirstOrDefault(a => !a.Contains("="));
+                return await Actions(Settings(args.Skip(1).Where(a => a.Contains("=")).Concat(provider != null ? new[] { "Actions.Provider=" + provider } : new string[0])));
+            }
             if (args[0] == "talk") return await Talk(args.Skip(1).ToArray());
             if (args[0] == "record") return Record(args[1], args.Length > 2 ? int.Parse(args[2]) : 3600);
             string root = args[0], engine = args[1], voiceName = args[2];
             string said = args.Length > 3 ? args[3] : "Yo Franklin, you got a minute? I need a ride to the airport.";
             Log.Init(Path.Combine(Path.GetTempPath(), "npcvoice-harness.log"));
             FalApi.Key = Environment.GetEnvironmentVariable("FAL_KEY", EnvironmentVariableTarget.User);
-            string llmKey = Environment.GetEnvironmentVariable("CEREBRAS_API_KEY", EnvironmentVariableTarget.User);
 
             VoiceGroup.PreferLongReference = engine == "modal" || engine == "fish";
             var lib = new VoiceLibrary(root, new[] { "Hillbilly", "Marine" }, new[] { "FemaleCop" }, w => Console.WriteLine("warn: " + w));
@@ -36,14 +53,11 @@ namespace NpcVoice
             await lib.UploadAllAsync(w => Console.WriteLine("warn: " + w));
             Console.WriteLine($"uploaded {lib.Uploaded}/{lib.ClipCount} in {sw.Elapsed.TotalSeconds:F1}s");
 
-            string iniPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\..\mod\NpcVoice.ini");
-            var ini = ShvdnIni.Load(iniPath);
-            string llmUrl = Net.HttpsUrl(ini.Get("Llm", "BaseUrl", "api.cerebras.ai/v1"), "https://api.cerebras.ai/v1");
-            string llmModel = ini.Get("Llm", "Model", "qwen-3.8-27b");
-            string sttEndpoint = ini.Get("Stt", "Endpoint", "nvidia/nemotron-asr-multilingual/asr");
-            Console.WriteLine($"ini {Path.GetFullPath(iniPath)}: llm {llmModel} at {llmUrl}, stt {sttEndpoint}");
+            var ini = ShvdnIni.Load(IniPath);
+            var llm = EngineConfig.Llm(ini.Get);
+            ISpeechToText stt = EngineConfig.SpeechToText(ini.Get, FalApi.Key);
+            Console.WriteLine($"ini {IniPath}: llm {llm.Model} at {llm.Url}, stt {stt.Name}");
 
-            var llm = new LlmClient(llmUrl, llmKey, llmModel, 120, 0.9, "", true);
             var msgs = new List<ChatMessage>
             {
                 new ChatMessage("system", "You are Franklin Clinton in GTA V, speaking out loud. Reply with ONLY the words you say, one or two short sentences, South LA slang. You may start with ONE tag like [angry] or [laughing]."),
@@ -75,7 +89,6 @@ namespace NpcVoice
                 Console.WriteLine($"tts [{v.Name}] first audio {first:F2}s, done {sw.Elapsed.TotalSeconds:F2}s, {audio:F1}s of audio @ {rate} Hz -> {outPath}");
 
                 // Speech-to-text of what we generated: checks intelligibility and the STT path in one go.
-                var stt = new FalSpeechToText(sttEndpoint, FalApi.Key);
                 byte[] wav16 = To16k(outPath);
                 sw.Restart();
                 string heard = await stt.TranscribeAsync(wav16, CancellationToken.None);
@@ -91,7 +104,7 @@ namespace NpcVoice
         private static async Task<int> Vad(string root)
         {
             FalApi.Key = Environment.GetEnvironmentVariable("FAL_KEY", EnvironmentVariableTarget.User);
-            var stt = new FalSpeechToText("nvidia/nemotron-asr-multilingual/asr", FalApi.Key);
+            ISpeechToText stt = EngineConfig.SpeechToText(ShvdnIni.Load(IniPath).Get, FalApi.Key);
             short[] Speech(string voice) => Samples(To16k(Path.Combine(root, voice, "ref_0.wav")));
             var rng = new Random(1);
             short[] Noise(double seconds, double dbfs)
@@ -128,13 +141,35 @@ namespace NpcVoice
         }
 
         /// <summary>
-        /// npcvoice-check actions: asks Jev (TYPESAFE_API_KEY) the mod's action question for typical
-        /// exchanges and prints its pick, probability, whether the mod would act on it, and the latency.
+        /// npcvoice-check stt &lt;audio&gt; [Section.Key=value ...]: transcribes a file three times with the
+        /// speech-to-text in NpcVoice.ini, or the settings given (Stt.Provider=openai Stt.BaseUrl=127.0.0.1:8000/v1),
+        /// and prints what it heard and how long each took.
         /// </summary>
-        private static async Task<int> Actions()
+        private static async Task<int> Stt(string path, IEnumerable<string> overrides)
         {
-            var jev = new JevClient("https://api.typesafe.ai", Environment.GetEnvironmentVariable("TYPESAFE_API_KEY", EnvironmentVariableTarget.User), "jev-latest");
-            if (!jev.IsConfigured) { Console.WriteLine("set TYPESAFE_API_KEY first"); return 1; }
+            FalApi.Key = Environment.GetEnvironmentVariable("FAL_KEY", EnvironmentVariableTarget.User);
+            ISpeechToText stt = EngineConfig.SpeechToText(Settings(overrides), FalApi.Key);
+            if (!stt.IsConfigured) { Console.WriteLine($"{stt.Name}: no key"); return 1; }
+            byte[] wav = To16k(path);
+            for (int i = 0; i < 3; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                string heard = await stt.TranscribeAsync(wav, CancellationToken.None);
+                Console.WriteLine($"{stt.Name} {sw.Elapsed.TotalSeconds:F2}s: {heard}");
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// npcvoice-check actions [jev|llm] [Section.Key=value ...]: asks the action picker the mod's action
+        /// question for typical exchanges and prints its pick, probability, whether the mod would act on it, and
+        /// the latency. jev = TypeSafe Jev (TYPESAFE_API_KEY), llm = the open LLM in [Llm]; default: [Actions] Provider.
+        /// </summary>
+        private static async Task<int> Actions(EngineConfig.Setting settings)
+        {
+            IActionPicker picker = EngineConfig.ActionPicker(settings, EngineConfig.Llm(settings));
+            if (!picker.IsConfigured) { Console.WriteLine($"{picker.Name}: no key (TYPESAFE_API_KEY for jev, [Llm] ApiKeyEnv for llm)"); return 1; }
+            Console.WriteLine("picker: " + picker.Name);
             var cases = new (string Npc, string Gender, string Said, string Reply, string Expect)[]
             {
                 ("Lamar Davis", "man", "yo what's up homie", "Ayy, my boy Franklin! Where you been at, dog? Come here, man.", "hug / none"),
@@ -172,7 +207,7 @@ namespace NpcVoice
                     ["npc"] = t.Npc, ["npc_gender"] = t.Gender, ["npc_persona"] = "A GTA V character.",
                     ["player"] = "Franklin", ["player_said"] = t.Said, ["npc_reply"] = t.Reply,
                 };
-                JevChoice c = await jev.ChooseAsync(state, ActionCatalog.Instructions, ActionCatalog.Criteria(), CancellationToken.None);
+                JevChoice c = await picker.ChooseAsync(state, ActionCatalog.Instructions, ActionCatalog.Criteria(), CancellationToken.None);
                 ActionCatalog.Kind kind = ActionCatalog.Find(c.Choice);
                 bool act = kind != null && kind.Name != "none" && c.Probability >= kind.MinProbability && !(kind.MenOnly && t.Gender == "woman");
                 bool match = t.Expect.Split('/').Select(s => s.Trim()).Contains(act ? c.Choice : "none");
@@ -185,18 +220,15 @@ namespace NpcVoice
 
         /// <summary>
         /// npcvoice-check talk [Character "what you say"]: the mod's real prompt (rules, persona, a sample
-        /// of their game lines from data/lines, a scene) to the LLM in NpcVoice.ini, then Jev's action pick
+        /// of their game lines from data/lines, a scene) to the LLM in NpcVoice.ini, then the action pick
         /// on the reply. With no arguments it runs everyday talk, insults and instructions.
         /// </summary>
         private static async Task<int> Talk(string[] args)
         {
             string repo = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\.."));
             var ini = ShvdnIni.Load(Path.Combine(repo, @"mod\NpcVoice.ini"));
-            var llm = new LlmClient(Net.HttpsUrl(ini.Get("Llm", "BaseUrl", "api.cerebras.ai/v1"), "https://api.cerebras.ai/v1"),
-                Environment.GetEnvironmentVariable("CEREBRAS_API_KEY", EnvironmentVariableTarget.User), ini.Get("Llm", "Model", "qwen-3.8-27b"),
-                int.Parse(ini.Get("Llm", "MaxTokens", "160")), double.Parse(ini.Get("Llm", "Temperature", "0.9"), System.Globalization.CultureInfo.InvariantCulture),
-                ini.Get("Llm", "ReasoningEffort", ""), ini.Get("Llm", "DisableReasoning", "true").Equals("true", StringComparison.OrdinalIgnoreCase));
-            var jev = new JevClient("https://api.typesafe.ai", Environment.GetEnvironmentVariable("TYPESAFE_API_KEY", EnvironmentVariableTarget.User), "jev-latest");
+            var llm = EngineConfig.Llm(ini.Get);
+            IActionPicker jev = EngineConfig.ActionPicker(ini.Get, llm);
 
             const string home = "at Michael's house, on Whispymound Dr in Rockford Hills, evening, hot and sunny.";
             const string street = "on Grove St in Davis, afternoon, hot and sunny.";

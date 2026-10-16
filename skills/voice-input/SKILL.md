@@ -29,8 +29,15 @@ show it on screen ("Listening... (to nobody near you)"), or the player thinks th
 
 ## Speech-to-text
 fal `nvidia/nemotron-asr-multilingual/asr`: send the WAV inline as a data URI (no upload step), ~0.4 s for a short
-sentence (0.38-0.80 s logged). Returns `output` or `text`. Whisper (any host) is the alternative; whatever you
-use, measure it per exchange.
+sentence (0.38-0.80 s logged). Returns `output` or `text`.
+
+Open weights on your own hardware: any OpenAI-compatible transcription server (`POST <base>/audio/transcriptions`,
+multipart `file` + `model` + `language`, returns `text`). `server/asr.py` serves NVIDIA Nemotron 3.5 ASR
+(`nvidia/nemotron-3.5-asr-streaming-0.6b`, open weights, OpenMDW-1.1) that way on a Modal L4: 0.52-0.98 s warm
+through the mod's client, 97 s from cold (keep-warm doesn't reach it). Whisper or Parakeet on the player's PC work
+the same way behind a server such as speaches. In the GTA example: `[Stt] Provider = openai`, `BaseUrl`, `Model`,
+`ApiKeyEnv`; test with `npcvoice-check stt <file> Stt.Provider=openai Stt.BaseUrl=...`. Whatever you use, measure it
+per exchange.
 
 ## Things that look like bugs
 - **"Nobody answers"** with people around: is the mod on? A toggle key that switches everything off looks

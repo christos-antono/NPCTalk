@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace NpcVoice
 {
-    /// <summary>Jev's pick for one Choice question: the option, its probability and Jev's confidence.</summary>
+    /// <summary>The pick for one Choice question: the option, its probability and the picker's confidence.</summary>
     internal sealed class JevChoice
     {
         public string Choice;
@@ -23,7 +23,19 @@ namespace NpcVoice
     /// one Choice question per exchange: which physical action goes with what the NPC just said.
     /// POST https://api.typesafe.ai/v1/systemone, "Authorization: Bearer $TYPESAFE_API_KEY".
     /// </summary>
-    internal sealed class JevClient
+    /// <summary>Picks one option for a question about a scene: TypeSafe's Jev, or an open LLM (LlmActionPicker).</summary>
+    internal interface IActionPicker
+    {
+        string Name { get; }
+        bool IsConfigured { get; }
+
+        /// <param name="state">What is judged (serialized as JSON).</param>
+        /// <param name="instructions">The question.</param>
+        /// <param name="criteria">Option name -> what it means.</param>
+        Task<JevChoice> ChooseAsync(object state, string instructions, IDictionary<string, string> criteria, CancellationToken ct);
+    }
+
+    internal sealed class JevClient : IActionPicker
     {
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         private readonly string _url, _key, _model;
@@ -34,6 +46,8 @@ namespace NpcVoice
             _key = apiKey;
             _model = model;
         }
+
+        public string Name => "jev";
 
         public bool IsConfigured => !string.IsNullOrEmpty(_key);
 

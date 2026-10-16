@@ -39,11 +39,20 @@ Each action has a name, a description Jev reads, and the probability Jev must re
 - A director or scripted scene can pin an action (`do: kneel_beg`) to skip the picker.
 
 ## Test it
-`npcvoice-check actions` (GTA example) runs 25 exchanges through Jev, 10 of them orders, and checks each pick
-(25/25 expected). In game, dev mode's PgUp/PgDn pick an action and End makes the target do it, to check the
+`npcvoice-check actions [jev|llm]` (GTA example) runs 25 exchanges through the picker, 10 of them orders, and
+checks each pick (25/25 with Jev, 24/25 with the open LLM). In game, dev mode's PgUp/PgDn pick an action and End makes the target do it, to check the
 animation without a conversation.
 
-## Without Jev
-A second LLM call with a JSON schema works, but it's slower (0.3-1 s) and its "confidence" isn't calibrated,
-so thresholds are guesswork. Whatever picks, keep the shape: a fixed set, a probability, per-action thresholds,
-orders checked first.
+## Without Jev: the open LLM picks
+The dialogue LLM can ask the same question (GTA example: `[Actions] Provider = llm`, `LlmActionPicker.cs`). Don't
+ask it for a confidence number; those aren't calibrated. Instead:
+1. Letter the options (`A. none: ...`, `B. punch: ...`) and ask for one letter, at temperature 0, thinking off.
+2. Request `logprobs` with `top_logprobs: 20`, and take each option's probability from its letter's probability
+   as the first token, normalized over the valid letters. The per-action thresholds then mean what they mean
+   with Jev.
+3. If the server returns no logprobs, take the letter it wrote as certain (thresholds stop mattering, so say so).
+
+Measured on `npcvoice-check actions` with Qwen3.8-27B on Cerebras: 24/25 (Jev: 25/25), 0.16-1.55 s per pick
+(Jev: 0.07-0.28 s); two runs at temperature 0 gave the same picks. The miss split "I'll put a bullet in your skull" between shoot (45%) and
+threaten_gun, so neither reached its threshold. Whatever picks, keep the shape: a fixed set, a probability,
+per-action thresholds, orders checked first.

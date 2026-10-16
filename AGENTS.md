@@ -23,7 +23,7 @@ V example was made.
 | `fish-voice-server` | Hosting Fish Audio Drama 3 / S2 Pro on Modal (or fal): API, keep-warm, best-of, fine-tune, gotchas |
 | `voice-references` | Reference clips from recordings the user has the rights to; `npctalk voice make/upload` |
 | `npc-dialogue` | Personas, the prompt, scene facts, output cleaning, content rules, speed |
-| `npc-actions` | What NPCs physically do, and following spoken orders (TypeSafe Jev) |
+| `npc-actions` | What NPCs physically do, and following spoken orders (TypeSafe Jev, or the open LLM) |
 | `voice-input` | Open mic, push-to-talk, speech-to-text, echo and noise |
 | `voice-likeness-eval` | Measuring whether a voice change really helped |
 | `npc-showcase-clips` | Gameplay-style clips of conversations |
@@ -38,10 +38,13 @@ copies differ.
   - `health`, `say`: talk to the voice server like a game does (URL from `NPCVOICE_URL`, token from
     `NPCVOICE_TOKEN`)
   - `voice make`, `voice upload`: reference voices from a recording, into the server's volume (`FAL_KEY` for
-    transcription, ffmpeg on PATH)
+    transcription, or `--stt-url` for any OpenAI-compatible server such as `server/asr.py`; ffmpeg on PATH)
   - `check`: nothing that mustn't ship (audio, transcripts, keys, real server URLs)
-- **`server/`**: Modal apps. `drama3.py` (default voice server), `s2pro.py`, `keepwarm.py`, `fal/` (S2 Pro on fal),
-  `finetune/` (dataset, LoRA, the scorer). Run them with the `modal` CLI.
+- **`server/`**: Modal apps. `drama3.py` (default voice server), `s2pro.py`, `asr.py` (NVIDIA Nemotron ASR's open
+  weights, OpenAI-compatible speech-to-text), `keepwarm.py`, `fal/` (S2 Pro on fal), `finetune/` (dataset, LoRA, the
+  scorer). Run them with the `modal` CLI.
+- **Open models only?** Every part has an open-weights option you can host (README, "Open models"); when the user
+  asks for it, use those and say which numbers were measured on them and which weren't.
 - **fal MCP server** (`https://mcp.fal.ai/mcp`, header `Authorization: Bearer $FAL_KEY`), pre-configured per agent:
   `.mcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, `.vscode/mcp.json`, `gemini-extension.json`,
   `opencode.json`. Useful for speech-to-text, MiniMax voices and anything else on fal.

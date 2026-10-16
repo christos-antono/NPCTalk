@@ -41,7 +41,7 @@ namespace NpcVoice
     /// you: [laughing] Take your shirt off, dog.     what you say, in your own character's voice
     /// you: Bend over. >> bend over and call Franklin "daddy"     after ">>": how they react (steers their reply)
     /// </code>
-    /// You say each line in your character's cloned voice; they answer live (LLM, Jev action, voice) like
+    /// You say each line in your character's cloned voice; they answer live (LLM, action pick, voice) like
     /// any conversation. While shooting nothing of the mod is on screen (no HUD, help text, notifications or
     /// subtitles) and scripted cameras cut between whoever is talking, framed so the subject is in the middle
     /// (for a 9:16 crop), with a wide shot of them while they act something out. It starts with a white

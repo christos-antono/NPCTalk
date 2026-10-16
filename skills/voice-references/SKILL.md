@@ -30,7 +30,8 @@ What `voice make` does (the same steps built the GTA V example's 13 voices):
 1. Split into lines at pauses of 0.3 s (20 ms frames louder than -42 dBFS are speech).
 2. Join runs of up to 4 neighbouring lines into 6-11 s candidates; score them for normal level (about -20 dBFS,
    -15 for angry), even loudness, no clipping, few joins, ~9 s; keep the best 12 that don't overlap.
-3. Transcribe each with fal speech-to-text (`FAL_KEY`).
+3. Transcribe each with fal speech-to-text (`FAL_KEY`), or on open weights with `--stt-url` (any OpenAI-compatible
+   transcription server, e.g. `server/asr.py` running NVIDIA Nemotron ASR, or Whisper on the user's PC).
 4. Drop candidates with fewer than 6 words or a speaking rate outside 1.4-4.8 words/s (screams, grunts, music,
    another language).
 5. Write `ref_0..2` (the best three) and `clone.wav`: the best candidates joined up to ~25 s. Every clip has a

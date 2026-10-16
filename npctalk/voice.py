@@ -4,9 +4,14 @@
   npctalk voice make --name Narrator --audio narrator_angry.wav --mood angry  # -> voices/Narrator/angry/
   npctalk voice upload voices/Narrator                                     # -> the server's /voices/Narrator
 
+  # transcribe on open weights on your own GPU (server/asr.py) or PC instead of fal:
+  npctalk voice make --name Narrator --audio narrator.wav --stt-url https://your-workspace--npcvoice-asr.modal.run/v1
+  npctalk voice make --name Narrator --audio narrator.wav --stt-url http://127.0.0.1:8000/v1 --stt-model Systran/faster-whisper-large-v3
+
 make splits the recording into lines at pauses, joins runs of neighbouring lines into 6-11 s candidates,
-transcribes them with fal speech-to-text (FAL_KEY), drops the ones that are mostly screams, grunts, music or
-another language, and writes:
+transcribes them (fal's NVIDIA Nemotron ASR endpoint with FAL_KEY, or with --stt-url any OpenAI-compatible
+transcription server: Nemotron's open weights via server/asr.py, Whisper or Parakeet locally), drops the ones
+that are mostly screams, grunts, music or another language, and writes:
 
   voices/<Name>/clone.wav + .lab     ~25 s of the cleanest candidates joined: what the server clones from by
                                      default (on Fish Audio Drama 3 it beats any single clip)
@@ -42,7 +47,8 @@ SPLIT_SILENCE = 0.3     # a pause this long ends a line
 PAD = 0.08              # kept around each line
 GAP = 0.25              # pause between joined lines
 MIN_REF, MAX_REF, CLONE_SECONDS = 6.0, 11.0, 24.0
-STT = "nvidia/nemotron-asr-multilingual/asr"
+STT = "nvidia/nemotron-asr-multilingual/asr"            # on fal
+STT_OPEN = "nvidia/nemotron-3.5-asr-streaming-0.6b"     # the open weights, for --stt-url servers
 
 
 @dataclass
@@ -77,6 +83,11 @@ def register(sub):
     m.add_argument("--mood", help="e.g. angry or drunk: clips for lines tagged [angry] / [drunk]")
     m.add_argument("--out", default="voices", help="where voice folders go (default: voices)")
     m.add_argument("--skip", type=float, default=0.0, help="seconds to skip at the start (an intro)")
+    m.add_argument("--stt-url", help="OpenAI-compatible transcription server (base URL ending in /v1) instead of fal, "
+                                     "e.g. server/asr.py's https://<workspace>--npcvoice-asr.modal.run/v1")
+    m.add_argument("--stt-model", default=STT_OPEN, help=f"model name sent to --stt-url (default: {STT_OPEN})")
+    m.add_argument("--stt-key-env", default="NPCVOICE_TOKEN",
+                   help="environment variable with --stt-url's bearer token, if it needs one (default: NPCVOICE_TOKEN)")
     m.set_defaults(run=run_make)
 
     u = vsub.add_parser("upload", help="voices/<Name> -> the server's Modal volume", description=__doc__,
@@ -191,11 +202,30 @@ def join(wavs, out):
                     "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", str(out)], check=True)
 
 
-def transcribe(wav, key):
-    audio = base64.b64encode(Path(wav).read_bytes()).decode()
-    req = urllib.request.Request(f"https://fal.run/{STT}", method="POST",
-                                 data=json.dumps({"audio_url": f"data:audio/wav;base64,{audio}"}).encode(),
-                                 headers={"Authorization": f"Key {key}", "Content-Type": "application/json"})
+def transcription_request(wav, url, model, key):
+    """POST <url>/audio/transcriptions as OpenAI's API: multipart file + model, answers {"text"}."""
+    boundary = "npctalk" + os.urandom(8).hex()
+    parts = []
+    for name, value in (("model", model), ("response_format", "json")):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{Path(wav).name}"\r\n'
+                 f'Content-Type: audio/wav\r\n\r\n'.encode() + Path(wav).read_bytes() + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return urllib.request.Request(url.rstrip("/") + "/audio/transcriptions", data=b"".join(parts), headers=headers, method="POST")
+
+
+def transcribe(wav, key, url=None, model=STT_OPEN):
+    """fal's Nemotron endpoint, or with url any OpenAI-compatible transcription server."""
+    if url:
+        req = transcription_request(wav, url, model, key)
+    else:
+        audio = base64.b64encode(Path(wav).read_bytes()).decode()
+        req = urllib.request.Request(f"https://fal.run/{STT}", method="POST",
+                                     data=json.dumps({"audio_url": f"data:audio/wav;base64,{audio}"}).encode(),
+                                     headers={"Authorization": f"Key {key}", "Content-Type": "application/json"})
     last = None
     for _ in range(3):
         try:
@@ -210,9 +240,13 @@ def transcribe(wav, key):
 # ------------------------------------------------------------------ commands
 
 def run_make(args):
-    key = os.environ.get("FAL_KEY", "")
-    if not key:
-        sys.exit("set FAL_KEY: the candidates are transcribed with fal speech-to-text (https://fal.ai/dashboard/keys)")
+    if args.stt_url:
+        key = os.environ.get(args.stt_key_env, "")
+    else:
+        key = os.environ.get("FAL_KEY", "")
+        if not key:
+            sys.exit("set FAL_KEY: the candidates are transcribed with fal speech-to-text (https://fal.ai/dashboard/keys),\n"
+                     "or transcribe on your own server with --stt-url (server/asr.py runs NVIDIA Nemotron ASR's open weights)")
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg isn't on PATH")
     lines = find_lines(decode(args.audio), args.skip)
@@ -230,7 +264,7 @@ def run_make(args):
         i, c = item
         c.wav = str(work / f"cand_{i:02d}.wav")
         cut(args.audio, c.lines, c.wav)
-        c.text = transcribe(c.wav, key)
+        c.text = transcribe(c.wav, key, args.stt_url, args.stt_model)
         Path(c.wav).with_suffix(".lab").write_text(c.text, encoding="utf-8")
         return judge(c)
 

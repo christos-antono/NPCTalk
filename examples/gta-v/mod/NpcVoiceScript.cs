@@ -45,13 +45,12 @@ namespace NpcVoice
         private readonly LineBook _lines;
         private readonly CharacterBook _book;
         private readonly LlmClient _llm;
-        private readonly FalSpeechToText _stt;
-        private readonly string _sttName;
+        private readonly ISpeechToText _stt;
         private readonly MicRecorder _mic = new MicRecorder();
         private readonly DevMode _dev;
         private readonly Visits _visits;
         private readonly NpcActions _actions;
-        private readonly JevClient _jev;
+        private readonly IActionPicker _picker;
         private readonly bool _actionsOn;
         private int _testAction = 1;
         private string _devNote; // last dev-mode tool message
@@ -119,7 +118,11 @@ namespace NpcVoice
             _autoStart = Settings.GetValue("Dev", "AutoStart", true);
 
             FalApi.Key = Key(Settings.GetValue("Fal", "ApiKeyEnv", "FAL_KEY"), Settings.GetValue("Fal", "ApiKey", ""));
-            string llmKey = Key(Settings.GetValue("Llm", "ApiKeyEnv", "CEREBRAS_API_KEY"), Settings.GetValue("Llm", "ApiKey", ""));
+            EngineConfig.Setting ini = (section, key, fallback) =>
+            {
+                string v = Settings.GetValue(section, key, fallback);
+                return string.IsNullOrWhiteSpace(v) ? fallback : v;
+            };
 
             _lines = new LineBook(Path.Combine(dataDir, "lines.txt"));
             _book = new CharacterBook(Path.Combine(dataDir, "characters"), Warn);
@@ -127,16 +130,8 @@ namespace NpcVoice
                 List(Settings.GetValue("Voices", "MalePool", "Hillbilly, Marine")),
                 List(Settings.GetValue("Voices", "FemalePool", "FemaleCop")), Warn);
 
-            _llm = new LlmClient(
-                Net.HttpsUrl(Settings.GetValue("Llm", "BaseUrl", "api.cerebras.ai/v1"), "https://api.cerebras.ai/v1"),
-                llmKey,
-                Settings.GetValue("Llm", "Model", "qwen-3.8-27b"),
-                Settings.GetValue("Llm", "MaxTokens", 160),
-                Settings.GetValue("Llm", "Temperature", 0.9),
-                Settings.GetValue("Llm", "ReasoningEffort", ""),
-                Settings.GetValue("Llm", "DisableReasoning", true));
-            _sttName = Settings.GetValue("Stt", "Endpoint", "nvidia/nemotron-asr-multilingual/asr");
-            _stt = new FalSpeechToText(_sttName, FalApi.Key);
+            _llm = EngineConfig.Llm(ini);
+            _stt = EngineConfig.SpeechToText(ini, FalApi.Key);
 
             string engine = Settings.GetValue("Tts", "Engine", "modal");
             VoiceGroup.PreferLongReference = engine.Equals("modal", StringComparison.OrdinalIgnoreCase) || engine.Equals("fish", StringComparison.OrdinalIgnoreCase);
@@ -174,20 +169,18 @@ namespace NpcVoice
                 List(Settings.GetValue("Dev", "Scene", "Franklin, Michael, Trevor, LamarDavis, LesterCrest, AmandaTownley, JimmyDisanto, TracyDisanto, DaveNorton, SiemonYetarian, Cop01SFY, Hillbilly01AMM, Marine02SMY")));
 
             _actionsOn = Settings.GetValue("Actions", "Enabled", true);
-            _jev = new JevClient(
-                Net.HttpsUrl(Settings.GetValue("Actions", "BaseUrl", "api.typesafe.ai"), "https://api.typesafe.ai"),
-                Key(Settings.GetValue("Actions", "ApiKeyEnv", "TYPESAFE_API_KEY"), Settings.GetValue("Actions", "ApiKey", "")),
-                Settings.GetValue("Actions", "Model", "jev-latest"));
+            _picker = EngineConfig.ActionPicker(ini, _llm);
             _visits = new Visits(_book, ReadKey("VisitMichael", Keys.J), ReadKey("VisitFranklin", Keys.K), ReadKey("VisitTrevor", Keys.L));
             _actions = new NpcActions(Path.Combine(dataDir, "undress.txt"), p => _dev.SpawnedPeds.Contains(p) || _visits.Peds.Contains(p));
 
-            if (string.IsNullOrEmpty(FalApi.Key)) Warn("no fal key: set the FAL_KEY environment variable");
-            if (!_llm.IsConfigured) Warn("no LLM key: set CEREBRAS_API_KEY to talk to characters");
-            if (_actionsOn && !_jev.IsConfigured) Warn("NPC actions need a Jev key: set the TYPESAFE_API_KEY environment variable");
+            if (!_stt.IsConfigured) Warn(_stt is FalSpeechToText ? "no fal key: set the FAL_KEY environment variable" : "speech-to-text needs a key: set [Stt] ApiKeyEnv");
+            if (!_llm.IsConfigured) Warn("no LLM key: set CEREBRAS_API_KEY, or point [Llm] BaseUrl at a server on this PC");
+            if (_actionsOn && !_picker.IsConfigured)
+                Warn(_picker is JevClient ? "NPC actions need a Jev key: set TYPESAFE_API_KEY, or [Actions] Provider = llm" : "NPC actions need the LLM: see [Llm]");
             if (_voices.Groups.Count == 0) Warn("no voices in scripts/NpcVoice/voices/ (run voices.ts --install)");
             Log.Write($"start: tts {_service.Engine}, {_voices.Groups.Count} voices ({_voices.ClipCount} clips), {_book.All.Count} characters ({_book.GameLineCount} game lines), " +
-                      $"llm {_llm.Model} at {_llm.Url} {(_llm.IsConfigured ? "ok" : "MISSING KEY")}, stt {_sttName}, fal key {(string.IsNullOrEmpty(FalApi.Key) ? "MISSING" : "ok")}, " +
-                      $"actions {(_actionsOn ? _jev.IsConfigured ? "jev ok" : "MISSING TYPESAFE_API_KEY" : "off")}");
+                      $"llm {_llm.Model} at {_llm.Url} {(_llm.IsConfigured ? "ok" : "MISSING KEY")}, stt {_stt.Name} {(_stt.IsConfigured ? "ok" : "MISSING KEY")}, fal key {(string.IsNullOrEmpty(FalApi.Key) ? "MISSING" : "ok")}, " +
+                      $"actions {(_actionsOn ? _picker.Name + (_picker.IsConfigured ? " ok" : " MISSING KEY") : "off")}");
 
             if (!string.IsNullOrEmpty(FalApi.Key))
             {
@@ -564,7 +557,7 @@ namespace NpcVoice
                 _status = $"{who} is thinking...";
 
                 sw.Restart();
-                var (reply, order) = await Dialogue.ReplyAsync(_llm, _actionsOn ? _jev : null, _book.ConversationPrompt(info, playerName, said, scene),
+                var (reply, order) = await Dialogue.ReplyAsync(_llm, _actionsOn ? _picker : null, _book.ConversationPrompt(info, playerName, said, scene),
                     new Dictionary<string, object>
                     {
                         ["npc"] = who,
@@ -575,12 +568,12 @@ namespace NpcVoice
                 ex.Llm = sw.Elapsed.TotalSeconds;
                 ex.Reply = reply;
                 Log.Write($"talk {ex.Mode}{(wav != null ? $" {MicRecorder.Seconds(wav):F1}s stt {ex.Stt:F2}s" : "")} llm {ex.Llm:F2}s" +
-                          $"{(order != null ? $" told to {order.Choice} ({order.Probability:P0}, jev {order.Seconds:F2}s)" : "")} | you: {said} | {who}: {reply}");
+                          $"{(order != null ? $" told to {order.Choice} ({order.Probability:P0}, {_picker.Name} {order.Seconds:F2}s)" : "")} | you: {said} | {who}: {reply}");
                 _book.Remember(info.Handle, reply);
                 if (order != null)
                     ex.ActionPick = Task.FromResult(order);
-                else if (_actionsOn && _jev.IsConfigured)
-                    ex.ActionPick = _jev.ChooseAsync(new Dictionary<string, object>
+                else if (_actionsOn && _picker.IsConfigured)
+                    ex.ActionPick = _picker.ChooseAsync(new Dictionary<string, object>
                     {
                         ["npc"] = who,
                         ["npc_gender"] = info.Female ? "woman" : "man",
@@ -849,7 +842,7 @@ namespace NpcVoice
             return g.Moods.Count > 0 ? $"voice +{string.Join("+", g.Moods.Keys)}" : "voice";
         }
 
-        private string Engines() => $"TTS {_service.Speaking}   LLM {_llm.Model}   STT {_sttName.Split('/').Last()}";
+        private string Engines() => $"TTS {_service.Speaking}   LLM {_llm.Model}   STT {_stt.Name.Split('/').Last()}";
 
         private string Status()
         {
@@ -894,13 +887,7 @@ namespace NpcVoice
             }
         }
 
-        private static string Key(string envName, string fallback)
-        {
-            string fromEnv = string.IsNullOrEmpty(envName) ? null : Environment.GetEnvironmentVariable(envName);
-            if (string.IsNullOrEmpty(fromEnv) && !string.IsNullOrEmpty(envName))
-                fromEnv = Environment.GetEnvironmentVariable(envName, EnvironmentVariableTarget.User);
-            return string.IsNullOrEmpty(fromEnv) ? fallback : fromEnv.Trim();
-        }
+        private static string Key(string envName, string fallback) => EngineConfig.Key(envName, fallback);
 
         private Keys ReadKey(string name, Keys fallback) =>
             Enum.TryParse(Settings.GetValue("Keys", name, fallback.ToString()), true, out Keys k) ? k : fallback;

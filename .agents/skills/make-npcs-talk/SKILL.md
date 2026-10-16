@@ -24,7 +24,7 @@ ended. The LLM sometimes spikes to 5-8 s, so log every step's time per exchange.
    single-player or not, how other mods find nearby characters and play sounds. Read `references/game-hooks.md`
    for the engine, and `knowledge/` for anyone who already did this game.
 2. **Pick the engines** (table below). Default: Fish Audio Drama 3 on Modal for voices, Cerebras for the LLM, fal
-   for speech-to-text.
+   for speech-to-text. If the user wants open models only, every part has one (the "Open model" column).
 3. **Stand the voice server up first, outside the game** (skill `fish-voice-server`): `npctalk health`, then
    `npctalk say "..." --voice Name/clone`. A game is the worst place to debug a GPU server.
 4. **Make reference voices** for two or three characters (skill `voice-references`).
@@ -54,13 +54,19 @@ voice clients, streaming playback, speech-to-text, open mic, action picking) bui
 Keep the hooks thin. If a game exposes them, the rest of this repo's code carries over.
 
 ## Choosing engines
-| Need | Default | Alternatives |
-|---|---|---|
-| Voice, realtime | **Fish Audio Drama 3** self-hosted on Modal (`server/drama3.py`): first audio ~0.4 s warm, acts `[tags]` well | **S2 Pro** (`server/s2pro.py`, smaller, fine-tunable); MiniMax via fal (no GPU to run, $1.50 per voice clone, 2.5-4.5 s per line) |
-| Voice, pre-rendered (cutscenes, demos) | Drama 3 with `best_of: 8` (best likeness measured) | ElevenLabs (scored lowest here, 0.612) |
-| LLM | Cerebras `qwen-3.8-27b`, reasoning off (~0.3 s) | Any OpenAI-compatible endpoint; reasoning models add seconds |
-| Speech-to-text | fal `nvidia/nemotron-asr-multilingual/asr` (~0.4 s, audio inline) | Whisper anywhere |
-| Actions | TypeSafe Jev (typed choice + probability, ~0.1 s) | A second LLM call with a JSON schema (slower, less calibrated) |
+| Need | Default | Open model (host it yourself) | Other alternatives |
+|---|---|---|---|
+| Voice, realtime | **Fish Audio Drama 3** self-hosted on Modal (`server/drama3.py`): first audio ~0.4 s warm, acts `[tags]` well | The default is open weights already; **S2 Pro** (`server/s2pro.py`, smaller, fine-tunable) too | MiniMax via fal (closed; no GPU to run, $1.50 per voice clone, 2.5-4.5 s per line) |
+| Voice while the GPU wakes | MiniMax on fal | None needed: wait for the GPU (`Fallback =` empty), or S2 Pro on fal (`fish`) | |
+| Voice, pre-rendered (cutscenes, demos) | Drama 3 with `best_of: 8` (best likeness measured) | Same | ElevenLabs (closed, scored lowest here, 0.612) |
+| LLM | Cerebras `qwen-3.8-27b`, reasoning off (~0.3 s) | Qwen3.8-27B's weights (Apache 2.0) on vLLM, SGLang, llama.cpp, Ollama or LM Studio; local servers need no key; `DisableReasoning = template` turns Qwen's thinking off | Any OpenAI-compatible endpoint; reasoning models add seconds |
+| Speech-to-text | fal `nvidia/nemotron-asr-multilingual/asr` (~0.4 s, audio inline) | Nemotron 3.5 ASR's weights (OpenMDW-1.1) on your GPU: `server/asr.py`, OpenAI-compatible, 0.5-1.0 s warm; Whisper or Parakeet behind any OpenAI-compatible server | |
+| Actions | TypeSafe Jev (typed choice + probability, ~0.1 s) | The dialogue LLM picks from lettered options, with each option's probability taken from the first token's logprobs (24/25 vs Jev's 25/25 on Qwen3.8-27B, 0.2-1.5 s) | |
+
+Licences of the open weights: Nemotron 3.5 ASR (OpenMDW-1.1) and Qwen3.8-27B (Apache 2.0) allow commercial use;
+Drama 3 (Fish Audio Community License) is free for non-commercial use and for commercial use under US$500k a year
+in revenue, not as a hosted service; S2 Pro (Fish Audio Research License) is non-commercial only. Tell the user
+before they ship a game with them.
 
 Costs: an H100 runs about $4/hour while it's up; it scales to zero 5 minutes after the last request, and the next
 request waits 1-3 minutes for a cold start. The game pings the server while it runs, so it stays warm exactly

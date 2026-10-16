@@ -44,6 +44,8 @@ All keys are in `NpcVoice.ini` (`[Keys]`).
    [Environment]::SetEnvironmentVariable('TYPESAFE_API_KEY', (Get-Clipboard).Trim(), 'User')  # actions (Jev)
    [Environment]::SetEnvironmentVariable('NPCVOICE_TOKEN', (Get-Clipboard).Trim(), 'User')    # your voice server
    ```
+   Open models only: skip fal, Cerebras and TypeSafe, and set `[Stt]`, `[Llm]`, `[Actions]` and `[Tts] Fallback`
+   as in the README's [Open models](../../README.md#open-models) section.
 4. **Build and copy:**
    ```powershell
    cd examples/gta-v/mod; dotnet build -c Release
@@ -63,9 +65,10 @@ build before installing it (`[System.Reflection.Assembly]::LoadFile("<full path>
 PowerShell throws if it's blocked), and keep the last build that loaded. Don't change the security setting for it.
 
 ## How a reply is made
-speech-to-text (`[Stt]`, fal `nvidia/nemotron-asr-multilingual/asr`, ~0.4 s, audio sent inline) → LLM in character
-with per-NPC history (`[Llm]`, Cerebras `qwen-3.8-27b`, ~0.3 s) → voice (`[Tts] Engine`) → NAudio playback. Jev
-picks the action in parallel. A conversation reply cuts off any ambient line. Every exchange is logged with its
+speech-to-text (`[Stt]`, fal `nvidia/nemotron-asr-multilingual/asr`, ~0.4 s, audio sent inline, or NVIDIA Nemotron
+ASR's open weights on your GPU with `Provider = openai`) → LLM in character with per-NPC history (`[Llm]`, Cerebras
+`qwen-3.8-27b`, ~0.3 s, or any OpenAI-compatible server, local ones included) → voice (`[Tts] Engine`) → NAudio
+playback. The action picker (`[Actions] Provider`: Jev, or the LLM) picks the action in parallel. A conversation reply cuts off any ambient line. Every exchange is logged with its
 timings in `<GTA V>/scripts/NpcVoice/NpcVoice.log`.
 
 | `[Tts] Engine` | First audio | Notes |
@@ -121,7 +124,7 @@ the front door (`visit:` in the log says which).
 
 ## Actions
 NPCs act out what they say, and do what you tell them. While the LLM writes the reply, TypeSafe's **Jev**
-(`[Actions]`, `TYPESAFE_API_KEY`) checks whether you gave an order ("take your shirt off", "get on your knees",
+(`[Actions]`, `TYPESAFE_API_KEY`), or with `Provider = llm` the open LLM in `[Llm]`, checks whether you gave an order ("take your shirt off", "get on your knees",
 "give me a hug"); if so they do it and the reply is written again knowing it. Otherwise Jev picks from your words
 and their reply, in parallel with the voice: punch, slap, headbutt, shoot, pull a gun, flip you off, facepalm,
 square up, shirt off (men), pants down to underwear, bend over, hug, kiss, kneel and beg, run away, or nothing.
@@ -138,12 +141,14 @@ state and the last exchange's timings (speech-to-text, LLM, voice, action). A ma
 look. **F10** hides both panels and keeps the rest.
 
 ## Check without the game
-`tools/npcvoice-check` runs the same network code (uploads, LLM, voices, speech-to-text of the result, Jev) outside
-the game:
+`tools/npcvoice-check` runs the same network code (uploads, LLM, voices, speech-to-text of the result, the action
+picker) outside the game, with the settings in `mod/NpcVoice.ini`; `Section.Key=value` arguments override them:
 ```powershell
 dotnet run -c Release --project tools/npcvoice-check -- <voices dir> minimax Franklin "You got a minute?"
 dotnet run -c Release --project tools/npcvoice-check -- talk LamarDavis "take your shirt off"
-dotnet run -c Release --project tools/npcvoice-check -- actions      # 25 exchanges through Jev, 10 of them orders
+dotnet run -c Release --project tools/npcvoice-check -- actions      # 25 exchanges, 10 of them orders: Jev 25/25
+dotnet run -c Release --project tools/npcvoice-check -- actions llm  # the same through the open LLM: 24/25
+dotnet run -c Release --project tools/npcvoice-check -- stt line.wav Stt.Provider=openai Stt.BaseUrl=127.0.0.1:8000/v1
 dotnet run -c Release --project tools/npcvoice-check -- vad <voices dir>
 ```
 

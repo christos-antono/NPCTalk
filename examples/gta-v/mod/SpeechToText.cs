@@ -81,8 +81,16 @@ namespace NpcVoice
         }
     }
 
+    /// <summary>What the player said, from a 16 kHz mono WAV.</summary>
+    internal interface ISpeechToText
+    {
+        string Name { get; }
+        bool IsConfigured { get; }
+        Task<string> TranscribeAsync(byte[] wav, CancellationToken ct);
+    }
+
     /// <summary>fal speech-to-text; the clip goes inline as a data URI so there's no upload round trip.</summary>
-    internal sealed class FalSpeechToText
+    internal sealed class FalSpeechToText : ISpeechToText
     {
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         private readonly string _url, _apiKey;
@@ -91,7 +99,12 @@ namespace NpcVoice
         {
             _url = "https://fal.run/" + endpoint.Trim('/');
             _apiKey = apiKey;
+            Name = endpoint.Trim('/');
         }
+
+        public string Name { get; }
+
+        public bool IsConfigured => !string.IsNullOrEmpty(_apiKey);
 
         public async Task<string> TranscribeAsync(byte[] wav, CancellationToken ct)
         {
@@ -115,6 +128,51 @@ namespace NpcVoice
                 // speech-to-text/turbo returns "output"; Whisper-style endpoints return "text".
                 object text = result.ContainsKey("output") ? result["output"] : result.ContainsKey("text") ? result["text"] : null;
                 return ((text as string) ?? "").Trim();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Any OpenAI-compatible transcription server: POST {base}/audio/transcriptions, multipart file + model,
+    /// returns {"text"}. Runs open models on your own GPU or PC: NVIDIA Nemotron ASR (server/asr.py),
+    /// Whisper or Parakeet (speaches, vLLM, and others). No key needed for a server on this PC or network.
+    /// </summary>
+    internal sealed class OpenAiSpeechToText : ISpeechToText
+    {
+        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private readonly string _url, _apiKey, _model, _language;
+
+        public OpenAiSpeechToText(string baseUrl, string apiKey, string model, string language)
+        {
+            _url = baseUrl.TrimEnd('/') + "/audio/transcriptions";
+            _apiKey = apiKey;
+            _model = model;
+            _language = language;
+        }
+
+        public string Name => _model;
+
+        public bool IsConfigured => !string.IsNullOrEmpty(_apiKey) || Net.IsPlainHttp(_url);
+
+        public async Task<string> TranscribeAsync(byte[] wav, CancellationToken ct)
+        {
+            var form = new MultipartFormDataContent();
+            var file = new ByteArrayContent(wav);
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(file, "file", "speech.wav");
+            form.Add(new StringContent(_model), "model");
+            if (!string.IsNullOrEmpty(_language)) form.Add(new StringContent(_language), "language");
+            form.Add(new StringContent("json"), "response_format");
+            var req = new HttpRequestMessage(HttpMethod.Post, _url) { Content = form };
+            if (!string.IsNullOrEmpty(_apiKey)) req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _apiKey);
+
+            using (var resp = await Http.SendAsync(req, ct).ConfigureAwait(false))
+            {
+                string json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new IOException($"speech-to-text {(int)resp.StatusCode}: {Net.Truncate(json, 200)}");
+                var result = (Dictionary<string, object>)Net.Json().DeserializeObject(json);
+                return result.TryGetValue("text", out var text) ? ((text as string) ?? "").Trim() : "";
             }
         }
     }

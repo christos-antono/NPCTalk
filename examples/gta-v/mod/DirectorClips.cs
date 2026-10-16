@@ -248,18 +248,18 @@ namespace NpcVoice
                 };
                 var (reply, order) = clip.Say != null
                     ? (clip.Say, clip.Do == null || clip.Do == "none" ? null : new JevChoice { Choice = clip.Do, Probability = 1, Confidence = 1 })
-                    : await Dialogue.ReplyAsync(_llm, _actionsOn ? _jev : null, prompt, orderState, bFemale, aName,
+                    : await Dialogue.ReplyAsync(_llm, _actionsOn ? _picker : null, prompt, orderState, bFemale, aName,
                         Speech.Plain(clip.Line), Character(clip.B), ct,
                         (clip.Reply ?? "react in character") + ". One sentence, at most 14 words").ConfigureAwait(false);
                 JevChoice pick = order;
-                if (pick == null && clip.Say == null && _actionsOn && _jev.IsConfigured && !string.IsNullOrWhiteSpace(reply))
+                if (pick == null && clip.Say == null && _actionsOn && _picker.IsConfigured && !string.IsNullOrWhiteSpace(reply))
                 {
                     var mood = new Dictionary<string, object>(orderState)
                     {
                         ["npc_persona"] = Net.Truncate(Character(clip.B)?.Persona ?? clip.B.Is ?? "A Los Santos local.", 400),
                         ["npc_reply"] = Speech.Plain(reply),
                     };
-                    pick = await _jev.ChooseAsync(mood, ActionCatalog.Instructions, ActionCatalog.Criteria(), ct).ConfigureAwait(false);
+                    pick = await _picker.ChooseAsync(mood, ActionCatalog.Instructions, ActionCatalog.Criteria(), ct).ConfigureAwait(false);
                 }
                 bVoice = VoiceOf(clip.B, reply);
                 using (ITts tts = _renderEngine())

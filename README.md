@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="#install">Claude Code · Codex · Cursor · Gemini CLI · Copilot · OpenCode</a> ·
+  <a href="#open-models">open models</a> ·
   <a href="docs/how-it-was-made.md">how it was made</a> ·
   <a href="examples/gta-v">GTA V example</a> ·
   <a href="https://discord.com/invite/sEZWaf7vV">Discord</a> ·
@@ -26,6 +27,10 @@ you to file a civil claim and flips you off, Michael defends his robe like it's 
 written live in character and spoken in that character's cloned voice by **Fish Audio Drama 3** (or **S2 Pro**),
 self-hosted on a serverless GPU. Most of the code doesn't know it's in GTA, so the same pieces work in other
 games: the skills say what a game has to provide, and how to build the rest.
+
+**Open models all the way through:** NVIDIA Nemotron ASR hears you, Qwen3.8-27B writes the line, Fish Audio Drama 3
+speaks it. Each is open weights you can run yourself, and so is everything else in the loop
+([Open models](#open-models)).
 
 ## Install
 Pick your agent. Each gets the same skills (Agent Skills format), the fal MCP server and the `npctalk` CLI.
@@ -56,8 +61,71 @@ instructions (`CLAUDE.md` and `GEMINI.md` point to it).
 | The NPC's lines (any OpenAI-compatible LLM) | [Cerebras](https://cloud.cerebras.ai) | `CEREBRAS_API_KEY` |
 | Actions and spoken orders | [TypeSafe](https://docs.typesafe.ai) | `TYPESAFE_API_KEY` |
 
+fal, Cerebras and TypeSafe each have an open replacement you can host yourself ([Open models](#open-models)).
+
 You also need Git, Python 3.10+, `uv` and ffmpeg. The GTA V example needs Windows, the .NET SDK (8+) to build it,
 and the game.
+
+## Open models
+Every part of the loop runs on an open model you can host yourself. The defaults use hosted services because they
+are the fastest way to a working build, and the voices are open weights on your own GPU from day one.
+
+| Part | Default | Open model | Run it yourself |
+|---|---|---|---|
+| **Speech-to-text** | NVIDIA Nemotron ASR on fal | [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b), 0.6B, OpenMDW-1.1 | [`server/asr.py`](server/asr.py) (Modal, L4, OpenAI-compatible), or Whisper / Parakeet on your PC behind any OpenAI-compatible server; `[Stt] Provider = openai` |
+| **The lines (LLM)** | Qwen3.8-27B on Cerebras | [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B), Apache 2.0: already open weights | vLLM or SGLang (`vllm serve Qwen/Qwen3.8-27B`), llama.cpp, Ollama or LM Studio; `[Llm] BaseUrl = 127.0.0.1:8000/v1`, no key |
+| **Voices** | Fish Audio Drama 3 on your Modal GPU | [Drama 3](https://huggingface.co/fishaudio/drama-3) and S2 Pro, open weights | Already self-hosted: [`server/drama3.py`](server/drama3.py) and [`server/s2pro.py`](server/s2pro.py) run them through SGLang-Omni on any H100-class GPU |
+| **Voice while the GPU wakes** | MiniMax on fal (closed) | S2 Pro | `[Tts] Fallback =` empty (wait for your GPU), or `fish` (S2 Pro on fal, [`server/fal/fal_app.py`](server/fal/fal_app.py)) |
+| **Actions** | TypeSafe Jev (closed) | The same LLM | `[Actions] Provider = llm`: the model's token probabilities pick the action |
+| **Reference voices** (`npctalk voice make`) | Nemotron ASR on fal | Nemotron 3.5 ASR, Whisper | `--stt-url https://your-workspace--npcvoice-asr.modal.run/v1` (or a local server) |
+| **Measuring voices** | Open already | Whisper large-v3, ECAPA (SpeechBrain), WavLM | [`server/finetune/train.py`](server/finetune/train.py) |
+
+ElevenLabs appears only as a row in the voice comparison; nothing in the mod uses it.
+
+**All open, in `NpcVoice.ini`** (the GTA V example; the same settings carry over to other games):
+```ini
+[Tts]
+Engine = modal
+Fallback =
+
+[Llm]
+; vLLM or SGLang on this PC serving Qwen/Qwen3.8-27B (http:// is added for local addresses; 127.0.0.1, because
+; localhost makes Windows try IPv6 first and costs ~2 s on the first request)
+BaseUrl = 127.0.0.1:8000/v1
+Model = Qwen/Qwen3.8-27B
+DisableReasoning = template
+
+[Stt]
+; server/asr.py: NVIDIA Nemotron ASR's open weights
+Provider = openai
+BaseUrl = your-workspace--npcvoice-asr.modal.run/v1
+ApiKeyEnv = NPCVOICE_TOKEN
+
+[Actions]
+Provider = llm
+```
+
+**Measured:**
+- `server/asr.py` through the mod's own client (`npcvoice-check stt`) took 0.52-0.98 s warm (fal: 0.68-2.0 s on the
+  same clip). A cold start took 97 s, and the mod's keep-warm pings only the voice server.
+- The LLM action picker with Qwen3.8-27B on Cerebras got 24/25 on `npcvoice-check actions` (Jev: 25/25), taking
+  0.16-1.55 s per pick against Jev's 0.07-0.28 s. Its miss was "I'll put a bullet in your skull", split between
+  shoot and threaten_gun. Two runs of the LLM picker gave the same picks.
+
+**Not verified yet:** Qwen on a local vLLM, llama.cpp, Ollama or LM Studio (`DisableReasoning = template`; Ollama
+switches thinking off its own way), Whisper and Parakeet servers, and a play session in the game with every part
+open. A 27B model on one consumer GPU will answer slower than Cerebras; measure it before you rely on it.
+
+**Licences of the weights:**
+
+| Model | Licence | Commercial use |
+|---|---|---|
+| Nemotron 3.5 ASR | OpenMDW-1.1 | Yes |
+| Qwen3.8-27B | Apache 2.0 | Yes |
+| Fish Audio Drama 3 | Fish Audio Community License | Free for research and non-commercial use; commercial use under US$500k annual revenue, not as a hosted service |
+| Fish Audio S2 Pro | Fish Audio Research License | Research and non-commercial only; commercial use needs a licence from Fish Audio |
+
+Read each licence yourself before you ship anything.
 
 ## Try it
 > Make the villagers in my game answer when I talk to them, in their own voices.
@@ -110,9 +178,10 @@ The agent starts with the **make-npcs-talk** skill and runs the same loop every 
 | `npctalk voice upload` | A voice folder → the server's Modal volume |
 | `npctalk check` | Blocks what must never ship: audio, transcripts, keys, real server URLs |
 
-**The voice server** (`server/`): `drama3.py` (Fish Audio Drama 3, the default), `s2pro.py` (S2 Pro, with
-fine-tuned voices), `keepwarm.py`, `fal/` (S2 Pro on fal over a realtime WebSocket), `finetune/` (dataset, LoRA,
-and the scorer behind every number here).
+**The servers** (`server/`): `drama3.py` (Fish Audio Drama 3, the default), `s2pro.py` (S2 Pro, with
+fine-tuned voices), `asr.py` (NVIDIA Nemotron ASR's open weights, OpenAI-compatible speech-to-text), `keepwarm.py`,
+`fal/` (S2 Pro on fal over a realtime WebSocket), `finetune/` (dataset, LoRA, and the scorer behind every number
+here).
 
 **The GTA V example** ([`examples/gta-v`](examples/gta-v)): the full mod (open mic, any NPC, 19 characters, homes,
 actions, dev mode, a director for recording clips), its tools, and a
@@ -160,8 +229,9 @@ Show what you made, ask for help, and follow along in the **[Universal Modder Di
 ## Credits
 - Voices: [Fish Audio](https://fish.audio) (Drama 3, S2 Pro, fish-speech), served with
   [SGLang-Omni](https://github.com/sgl-project/sglang-omni) on [Modal](https://modal.com) and [fal](https://fal.ai).
-- Lines: [Cerebras](https://cerebras.ai). Speech-to-text: NVIDIA Nemotron ASR on fal. Actions:
-  [TypeSafe](https://docs.typesafe.ai) Jev.
+- Lines: [Qwen](https://huggingface.co/Qwen/Qwen3.8-27B) on [Cerebras](https://cerebras.ai). Speech-to-text:
+  [NVIDIA Nemotron ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b), on fal or self-hosted.
+  Actions: [TypeSafe](https://docs.typesafe.ai) Jev, or the LLM.
 - GTA V: [Script Hook V](http://www.dev-c.com/gtav/scripthookv/),
   [ScriptHookVDotNet](https://github.com/scripthookvdotnet/scripthookvdotnet), [NAudio](https://github.com/naudio/NAudio).
 - A [Universal Modder](https://github.com/rehan-remade/universal-modder) project; the repo layout and principles come from universal-modder.

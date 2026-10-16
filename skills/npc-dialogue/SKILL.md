@@ -65,6 +65,12 @@ words at the last full sentence.
 ## Speed
 - Use a fast model and turn reasoning off: Cerebras `qwen-3.8-27b` answers in ~0.3 s (`DisableReasoning = true`).
   Reasoning models add 1-5 s, and the player hears every millisecond.
+- The same open weights (Qwen3.8-27B, Apache 2.0) run on your own GPU: vLLM or SGLang (`vllm serve Qwen/Qwen3.8-27B`),
+  or a GGUF quant in llama.cpp, Ollama or LM Studio. Point the OpenAI-compatible base URL at it (no key on
+  localhost; write `127.0.0.1`, since on Windows `localhost` tries IPv6 first and the first request waits ~2 s). Qwen
+  thinks by default there: switch it off through the chat template
+  (`chat_template_kwargs: {"enable_thinking": false}`, `DisableReasoning = template`), and strip any `<think>` block
+  that still comes back so it's never spoken. Measure the time per line; one consumer GPU is slower than Cerebras.
 - `MaxTokens = 160`, `Temperature = 0.9`.
 - Run the action picker in parallel with the LLM, not after it.
 - Log the LLM's time per exchange; it occasionally spikes to 5-8 s. If that matters, fire a second request

@@ -100,11 +100,11 @@ How you talk:
             Said(playerName, said) + $"\n(You do what they said: you're {doing} right now. Say what you'd say while doing it; don't refuse.)";
 
         /// <summary>
-        /// The character's answer to the last message in the prompt. Meanwhile Jev checks whether the player
+        /// The character's answer to the last message in the prompt. Meanwhile the action picker checks whether the player
         /// told them to do something; if so the line is asked for again knowing they're doing it, so the words
         /// go with the action instead of refusing it. Returns that order (null if none) for the action queue.
         /// </summary>
-        public static async Task<(string Reply, JevChoice Order)> ReplyAsync(LlmClient llm, JevClient jev, List<ChatMessage> prompt,
+        public static async Task<(string Reply, JevChoice Order)> ReplyAsync(LlmClient llm, IActionPicker picker, List<ChatMessage> prompt,
             IDictionary<string, object> orderState, bool female, string playerName, string said, Character c, CancellationToken ct,
             string direction = null)
         {
@@ -116,12 +116,12 @@ How you talk:
             using (var first = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 Task<string> answer = llm.CompleteAsync(prompt, first.Token);
-                Task<JevChoice> order = jev != null && jev.IsConfigured
-                    ? ActionCatalog.OrderAsync(jev, orderState, female, ct) : Task.FromResult<JevChoice>(null);
+                Task<JevChoice> order = picker != null && picker.IsConfigured
+                    ? ActionCatalog.OrderAsync(picker, orderState, female, ct) : Task.FromResult<JevChoice>(null);
                 Observe(answer);
                 Observe(order);
                 if (await Task.WhenAny(answer, order).ConfigureAwait(false) == answer)
-                    await Task.WhenAny(order, Task.Delay(250, ct)).ConfigureAwait(false); // Jev is usually first; don't wait long
+                    await Task.WhenAny(order, Task.Delay(250, ct)).ConfigureAwait(false); // the picker is usually first; don't wait long
                 if (order.IsFaulted) Log.Write("order check: " + order.Exception.GetBaseException().Message);
                 JevChoice ordered = order.Status == TaskStatus.RanToCompletion ? order.Result : null;
                 if (ordered == null) return (Clean(await answer.ConfigureAwait(false), c), null);

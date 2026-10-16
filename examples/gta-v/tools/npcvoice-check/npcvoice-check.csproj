@@ -12,6 +12,6 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Web.Extensions" />
     <!-- The mod's game-free half: everything here builds and runs without GTA. -->
-    <Compile Include="..\..\mod\Net.cs;..\..\mod\Tts.cs;..\..\mod\VoiceLibrary.cs;..\..\mod\FalClient.cs;..\..\mod\MsgPack.cs;..\..\mod\Log.cs;..\..\mod\Llm.cs;..\..\mod\SpeechToText.cs;..\..\mod\OpenMic.cs;..\..\mod\Jev.cs;..\..\mod\ActionCatalog.cs;..\..\mod\Dialogue.cs" />
+    <Compile Include="..\..\mod\Net.cs;..\..\mod\Tts.cs;..\..\mod\VoiceLibrary.cs;..\..\mod\FalClient.cs;..\..\mod\MsgPack.cs;..\..\mod\Log.cs;..\..\mod\Llm.cs;..\..\mod\SpeechToText.cs;..\..\mod\OpenMic.cs;..\..\mod\Jev.cs;..\..\mod\LlmActionPicker.cs;..\..\mod\EngineConfig.cs;..\..\mod\ActionCatalog.cs;..\..\mod\Dialogue.cs" />
   </ItemGroup>
 </Project>

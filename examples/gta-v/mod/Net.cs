@@ -31,7 +31,9 @@ namespace NpcVoice
         /// <summary>
         /// A base URL from NpcVoice.ini. ScriptHookVDotNet's ini reader cuts values at "//" (it treats
         /// it as a comment), so "https://api.cerebras.ai/v1" arrives as "https". Addresses are written
-        /// without the scheme and get https:// here; a value that was cut off falls back to the default.
+        /// without the scheme and get https:// here, or http:// for a server on this PC or the local
+        /// network (127.0.0.1:11434/v1, 192.168.1.20:8000/v1), which rarely has TLS; a value that was cut
+        /// off falls back to the default.
         /// </summary>
         public static string HttpsUrl(string value, string fallback)
         {
@@ -39,9 +41,18 @@ namespace NpcVoice
             if (v.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(v, "^https?:?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 return fallback;
             if (!v.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !v.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                v = "https://" + v;
+                v = (IsLocal(v) ? "http://" : "https://") + v;
             return Uri.TryCreate(v, UriKind.Absolute, out _) ? v : fallback;
         }
+
+        /// <summary>This PC or a private network address: localhost, 127.x, [::1], 10.x, 172.16-31.x, 192.168.x, *.local.</summary>
+        public static bool IsLocal(string hostAndPath) =>
+            System.Text.RegularExpressions.Regex.IsMatch(hostAndPath,
+                @"^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[\w-]+\.local)(:\d+)?(/|$)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>A plain-http URL (a server on this PC or network), which needs no API key.</summary>
+        public static bool IsPlainHttp(string url) => url != null && url.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
 
         public static string Truncate(string s, int max = 300) => s == null ? "" : s.Length > max ? s.Substring(0, max) : s;
 

@@ -18,6 +18,8 @@ an action when it fits. Code: `examples/gta-v`. Story: `docs/how-it-was-made.md`
   S2 Pro on the same API as the alternative. Fallback: MiniMax speech-2.8-turbo on fal.
 - LLM: Cerebras `qwen-3.8-27b`, reasoning off. Speech-to-text: fal `nvidia/nemotron-asr-multilingual/asr`. Actions:
   TypeSafe Jev.
+- Open-model options for each part (README, "Open models"): Nemotron 3.5 ASR's weights on a Modal L4
+  (`server/asr.py`), Qwen3.8-27B on any OpenAI-compatible server, the LLM as the action picker, no closed fallback.
 
 ## Route into the game
 A ScriptHookVDotNet script DLL in `<GTA V>/scripts/`: C#, hot-reloadable (Insert), full access to natives, the
@@ -42,11 +44,14 @@ speech-to-text 0.38-0.80 s, LLM 0.28-1.0 s (occasional 5-8 s spikes), Jev 0.07-0
 - Every exchange logged with per-step timings and what was heard and said.
 - `tools/npcvoice-check` runs the network half (prompt, LLM, voices, speech-to-text of the result, Jev) outside
   the game; `npcvoice-check actions`: 25/25 expected picks.
+- `npcvoice-check actions llm` (Qwen3.8-27B on Cerebras picking from first-token logprobs): 24/25.
+- `npcvoice-check stt` against `server/asr.py`: the mod's OpenAI-compatible client, 0.52-0.98 s warm, 97 s cold.
 - 20 gameplay-style clips recorded and checked frame by frame (contact sheets) and by ear.
 - Voice likeness measured on one character (Lamar, 10 lines): Drama 3 best of 8 = 0.704 voice match (ECAPA vs
   60 held-out real clips), S2 Pro's best zero-shot 0.707, an S2 Pro fine-tune 0.785.
 - **Not verified:** GTA V Enhanced; other characters' likeness by numbers (only by ear); long play sessions for
-  memory growth.
+  memory growth; a play session with every part on open models (the pieces were checked outside the game); a local
+  LLM server instead of Cerebras.
 
 ## Gotchas
 1. **Every HTTPS call fails from the game.** GTA5.exe has no .NET entry assembly, so .NET defaults to TLS 1.0. Turn
