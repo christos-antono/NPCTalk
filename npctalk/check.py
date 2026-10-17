@@ -4,8 +4,9 @@
   npctalk check examples/my-mod
 
 It flags:
-  - audio: voice clips, game audio, renders (.wav .mp3 .ogg .flac .m4a .opus .aac .webm). Cloned voices of
-    real people and audio cut from a game are not yours to publish.
+  - audio: voice clips, game audio, renders (.wav .mp3 .ogg .flac .m4a .opus .aac .webm .aiff .wma). Cloned
+    voices of real people and audio cut from a game are not yours to publish.
+  - game audio banks as extracted: RAGE .awc (GTA V, RDR2), Wwise .wem .bnk, FMOD .fsb .bank, Bethesda .xwm
   - transcripts: .lab files (they sit next to voice clips and are often a game's dialogue)
   - video outside docs/media/ (demo clips carry cloned voices too; keep a deliberate, approved one in
     docs/media/)
@@ -21,7 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-AUDIO = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".opus", ".aac", ".webm"}
+AUDIO = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".opus", ".aac", ".webm", ".aiff", ".aif", ".wma"}
+GAME_AUDIO = {".awc", ".wem", ".bnk", ".fsb", ".bank", ".xwm"}
 VIDEO = {".mp4", ".mkv", ".mov", ".avi"}
 TEXT = {".py", ".cs", ".ts", ".js", ".md", ".txt", ".ini", ".json", ".toml", ".yml", ".yaml", ".ps1", ".sh",
         ".cmd", ".bat", ".cfg", ".csproj", ".xml", ".env", ""}
@@ -66,6 +68,9 @@ def problems(root):
         suffix = path.suffix.lower()
         if suffix in AUDIO:
             found.append((rel, "audio file (voice clips and game audio don't ship)"))
+            continue
+        if suffix in GAME_AUDIO:
+            found.append((rel, "game audio bank (extracted game audio doesn't ship)"))
             continue
         if suffix == ".lab":
             found.append((rel, "transcript of a voice clip (.lab)"))

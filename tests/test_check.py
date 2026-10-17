@@ -24,6 +24,13 @@ def test_audio_and_transcripts_are_blocked(tmp_path):
     assert "voices/Lamar/clone.lab" in found
 
 
+def test_game_audio_banks_are_blocked(tmp_path):
+    names = ["Init.bnk", "Master.bank", "VO_Lamar.wem", "dialogue.fsb", "line.xwm", "speech.awc", "take.aiff"]
+    for name in names:
+        (tmp_path / name).write_bytes(b"x")
+    assert sorted(where for where, _ in problems(tmp_path)) == names
+
+
 def test_video_only_in_docs_media(tmp_path):
     (tmp_path / "docs" / "media").mkdir(parents=True)
     (tmp_path / "docs" / "media" / "demo.mp4").write_bytes(b"x")
