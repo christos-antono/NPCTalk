@@ -165,6 +165,7 @@ Show what you made, ask for help, and follow along in the **[Universal Modder Di
 - GTA V: [Script Hook V](http://www.dev-c.com/gtav/scripthookv/),
   [ScriptHookVDotNet](https://github.com/scripthookvdotnet/scripthookvdotnet), [NAudio](https://github.com/naudio/NAudio).
 - A [Universal Modder](https://github.com/rehan-remade/universal-modder) project; the repo layout and principles come from universal-modder.
+- Made by [@chris](https://patch.gg/@chris) at [Patch](https://patch.gg), where people play and remix games and mods.
 - Built in real sessions with an AI coding agent (Claude Code), from the first line of the mod to the measurements.
 
 MIT licensed. GTA V and its characters belong to Rockstar Games; this project isn't affiliated with Rockstar, Fish
